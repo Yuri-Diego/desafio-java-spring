@@ -1,8 +1,16 @@
 package one.digitalinnovation.gof.service.impl;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
+import one.digitalinnovation.gof.dto.ClienteRequest;
+import one.digitalinnovation.gof.dto.ClienteResponse;
+import one.digitalinnovation.gof.exception.CepInvalidoException;
+import one.digitalinnovation.gof.exception.ClienteNotFoundException;
+import one.digitalinnovation.gof.observer.ClienteInseridoEvent;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import one.digitalinnovation.gof.model.Cliente;
@@ -29,55 +37,79 @@ public class ClienteServiceImpl implements ClienteService {
 	private EnderecoRepository enderecoRepository;
 	@Autowired
 	private ViaCepService viaCepService;
+	@Autowired
+	private ApplicationEventPublisher eventPublisher;
 	
 	// Strategy: Implementar os métodos definidos na interface.
 	// Facade: Abstrair integrações com subsistemas, provendo uma interface simples.
 
-	@Override
-	public Iterable<Cliente> buscarTodos() {
-		// Buscar todos os Clientes.
-		return clienteRepository.findAll();
+	// Builder: DTO
+	private ClienteResponse toResponse(Cliente cliente) {
+		return ClienteResponse.builder()
+				.id(cliente.getId())
+				.nome(cliente.getNome())
+				.cep(cliente.getEndereco().getCep())
+				.logradouro(cliente.getEndereco().getLogradouro())
+				.bairro(cliente.getEndereco().getBairro())
+				.localidade(cliente.getEndereco().getLocalidade())
+				.uf(cliente.getEndereco().getUf())
+				.build();
 	}
 
 	@Override
-	public Cliente buscarPorId(Long id) {
-		// Buscar Cliente por ID.
-		Optional<Cliente> cliente = clienteRepository.findById(id);
-		return cliente.get();
+	public Iterable<ClienteResponse> buscarTodos() {
+		List<ClienteResponse> respostas = new ArrayList<>();
+		clienteRepository.findAll().forEach(c -> respostas.add(toResponse(c)));
+		return respostas;
 	}
 
 	@Override
-	public void inserir(Cliente cliente) {
-		salvarClienteComCep(cliente);
+	public ClienteResponse buscarPorId(Long id) {
+		Cliente cliente = clienteRepository.findById(id)
+				.orElseThrow(() -> new ClienteNotFoundException(id));
+		return toResponse(cliente);
 	}
 
 	@Override
-	public void atualizar(Long id, Cliente cliente) {
-		// Buscar Cliente por ID, caso exista:
-		Optional<Cliente> clienteBd = clienteRepository.findById(id);
-		if (clienteBd.isPresent()) {
-			salvarClienteComCep(cliente);
-		}
+	public ClienteResponse inserir(ClienteRequest request) {
+		Cliente cliente = salvarClienteComCep(new Cliente(), request);
+		eventPublisher.publishEvent(new ClienteInseridoEvent(this, cliente));
+		return toResponse(cliente);
+	}
+
+	@Override
+	public ClienteResponse atualizar(Long id, ClienteRequest request) {
+		Cliente clientExistence = clienteRepository.findById(id)
+				.orElseThrow(() -> new ClienteNotFoundException(id));
+		return toResponse(salvarClienteComCep(clientExistence, request));
 	}
 
 	@Override
 	public void deletar(Long id) {
-		// Deletar Cliente por ID.
+		if (!clienteRepository.existsById(id)) {
+			throw new ClienteNotFoundException(id);
+		}
 		clienteRepository.deleteById(id);
 	}
 
-	private void salvarClienteComCep(Cliente cliente) {
-		// Verificar se o Endereco do Cliente já existe (pelo CEP).
-		String cep = cliente.getEndereco().getCep();
+	private Cliente salvarClienteComCep(Cliente cliente, ClienteRequest request) {
+		String cep = request.getCep();
 		Endereco endereco = enderecoRepository.findById(cep).orElseGet(() -> {
-			// Caso não exista, integrar com o ViaCEP e persistir o retorno.
-			Endereco novoEndereco = viaCepService.consultarCep(cep);
-			enderecoRepository.save(novoEndereco);
-			return novoEndereco;
+			try {
+				Endereco novoEndereco = viaCepService.consultarCep(cep);
+				if (novoEndereco == null || novoEndereco.getCep() == null) {
+					throw new CepInvalidoException(cep); // CEP não existe no ViaCEP
+				}
+				return enderecoRepository.save(novoEndereco);
+			} catch (CepInvalidoException e) {
+				throw e;
+			} catch (Exception e) {
+				throw new CepInvalidoException(cep);
+			}
 		});
+		cliente.setNome(request.getNome());
 		cliente.setEndereco(endereco);
-		// Inserir Cliente, vinculando o Endereco (novo ou existente).
-		clienteRepository.save(cliente);
+		return clienteRepository.save(cliente);
 	}
 
 }

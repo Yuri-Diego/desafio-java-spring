@@ -1,5 +1,7 @@
 package one.digitalinnovation.gof.service;
 
+import one.digitalinnovation.gof.dto.ClienteRequest;
+import one.digitalinnovation.gof.dto.ClienteResponse;
 import one.digitalinnovation.gof.model.Cliente;
 
 /**
@@ -11,13 +13,13 @@ import one.digitalinnovation.gof.model.Cliente;
  */
 public interface ClienteService {
 
-	Iterable<Cliente> buscarTodos();
+	Iterable<ClienteResponse> buscarTodos();
 
-	Cliente buscarPorId(Long id);
+	ClienteResponse buscarPorId(Long id);
 
-	void inserir(Cliente cliente);
+	ClienteResponse inserir(ClienteRequest request);
 
-	void atualizar(Long id, Cliente cliente);
+	ClienteResponse atualizar(Long id, ClienteRequest request);
 
 	void deletar(Long id);
 
